@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Análise de Veículos de Leilão</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --background: #f8fafc;
+            --card: #ffffff;
+            --text: #1e293b;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--background);
+            color: var(--text);
+            margin: 0;
+            padding: 2rem;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .card {
+            background: var(--card);
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .btn-group {
+            display: flex;
+            gap: 1rem;
+        }
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: opacity 0.2s;
+        }
+        button:hover { opacity: 0.9; }
+        button:disabled { background-color: #94a3b8; }
+        .grid-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+        .stat-box {
+            background: #f1f5f9;
+            padding: 1rem;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .stat-box span {
+            display: block;
+            font-size: 1.75rem;
+            font-weight: bold;
+            color: var(--primary);
+        }
+        #logArea {
+            background: #0f172a;
+            color: #38bdf8;
+            padding: 1rem;
+            border-radius: 6px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🚗 Agente de Análise Automatizada - FIPE Leilão</h2>
+    
+    <div class="card">
+        <div class="form-group">
+            <label for="sheetId">ID da Planilha Google Sheets</label>
+            <input type="text" id="sheetId" placeholder="Ex: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms">
+        </div>
+        <div class="form-group">
+            <label for="rangeEntrada">Aba/Intervalo de Entrada</label>
+            <input type="text" id="rangeEntrada" value="Engenharia!A2:C">
+        </div>
+        <div class="form-group">
+            <label for="rangeSaida">Aba/Intervalo de Saída</label>
+            <input type="text" id="rangeSaida" value="Resultados!A:E">
+        </div>
+        
+        <div class="btn-group">
+            <button id="btnProcessar" onclick="iniciarProcessamento()">Processar Veículos</button>
+            <button id="btnExportar" onclick="exportarExcel()" style="background-color: #10b981;">Exportar para Excel</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>📊 Dashboard em Tempo Real</h3>
+        <div class="grid-stats">
+            <div class="stat-box">Total Veículos<span id="stTotal">0</span></div>
+            <div class="stat-box">FIPE Encontradas<span id="stEncontradas">0</span></div>
+            <div class="stat-box">FIPE Não Encontradas<span id="stNaoEncontradas">0</span></div>
+            <div class="stat-box">Diferença ≥ R$15k<span id="stSucesso">0</span></div>
+        </div>
+        <p style="margin-top: 1rem; font-weight: 500;">Tempo de Execução: <span id="stTempo">0</span>s</p>
+    </div>
+
+    <div class="card">
+        <h3>📋 Logs de Processamento</h3>
+        <div id="logArea">Aguardando início...</div>
+    </div>
+</div>
+
+<script>
+    const API_URL = "http://localhost:8000/api";
+    let timerInterval = null;
+
+    async function iniciarProcessamento() {
+        const payload = {
+            spreadsheet_id: document.getElementById('sheetId').value,
+            range_entrada: document.getElementById('rangeEntrada').value,
+            range_saida: document.getElementById('rangeSaida').value
+        };
+
+        if(!payload.spreadsheet_id) {
+            alert("Por favor, insira o ID da Planilha Google.");
+            return;
+        }
+
+        document.getElementById('btnProcessar').disabled = true;
+
+        try {
+            const response = await fetch(`${API_URL}/processar`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            
+            if(response.ok) {
+                monitorarStatus();
+                timerInterval = setInterval(monitorarStatus, 2000);
+            } else {
+                const err = await response.json();
+                alert("Erro: " + err.detail);
+                document.getElementById('btnProcessar').disabled = false;
+            }
+        } catch (error) {
+            console.error(error);
+            alert("Não foi possível conectar ao Servidor Backend.");
+            document.getElementById('btnProcessar').disabled = false;
+        }
+    }
+
+    async function monitorarStatus() {
+        try {
+            const response = await fetch(`${API_URL}/status`);
+            const data = await response.json();
+
+            document.getElementById('stTotal').innerText = data.total_veiculos;
+            document.getElementById('stEncontradas').innerText = data.fipe_encontradas;
+            document.getElementById('stNaoEncontradas').innerText = data.fipe_nao_encontradas;
+            document.getElementById('stSucesso').innerText = data.filtrados_sucesso;
+            document.getElementById('stTempo').innerText = data.tempo_total;
+
+            const logArea = document.getElementById('logArea');
+            if(data.logs.length > 0) {
+                logArea.innerHTML = data.logs.join("<br>");
+            }
+
+            if (!data.em_execucao) {
+                clearInterval(timerInterval);
+                document.getElementById('btnProcessar').disabled = false;
+                logArea.innerHTML += "<br><strong>Processamento Finalizado!</strong>";
+            }
+        } catch (error) {
+            console.error("Erro ao ler status:", error);
+        }
+    }
+
+    function exportarExcel() {
+        // Redirecionamento simplificado para baixar os dados da planilha diretamente via CSV/Excel público se desejado, 
+        // ou você pode extrair diretamente os dados da tabela gerada.
+        const sheetId = document.getElementById('sheetId').value;
+        if(!sheetId) {
+            alert("Insira o ID da planilha para exportar.");
+            return;
+        }
+        window.open(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=xlsx`, '_blank');
+    }
+</script>
+</body>
+</html>
